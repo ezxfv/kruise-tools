@@ -18,14 +18,12 @@ package cmd
 
 import (
 	"flag"
+	krollout "github.com/openkruise/kruise-tools/pkg/cmd/rollout"
 	"io"
 	"os"
 
-	"github.com/openkruise/kruise-tools/pkg/cmd/create"
+	//"github.com/openkruise/kruise-tools/pkg/cmd/create"
 	cmdexec "github.com/openkruise/kruise-tools/pkg/cmd/exec"
-	"github.com/openkruise/kruise-tools/pkg/cmd/expose"
-	"github.com/openkruise/kruise-tools/pkg/cmd/migrate"
-	krollout "github.com/openkruise/kruise-tools/pkg/cmd/rollout"
 	"github.com/openkruise/kruise-tools/pkg/cmd/scaledown"
 	kset "github.com/openkruise/kruise-tools/pkg/cmd/set"
 	"github.com/spf13/cobra"
@@ -43,7 +41,6 @@ import (
 	"k8s.io/kubectl/pkg/cmd/patch"
 	"k8s.io/kubectl/pkg/cmd/plugin"
 	"k8s.io/kubectl/pkg/cmd/replace"
-	"k8s.io/kubectl/pkg/cmd/scale"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"k8s.io/kubectl/pkg/cmd/version"
 	"k8s.io/kubectl/pkg/cmd/wait"
@@ -367,14 +364,14 @@ func NewKubectlCommand(in io.Reader, out, err io.Writer) *cobra.Command {
 	ioStreams := genericclioptions.IOStreams{In: in, Out: out, ErrOut: err}
 
 	groups := templates.CommandGroups{
-		{
-			Message: "Basic Commands:",
-			Commands: []*cobra.Command{
-				create.NewCmdCreate(f, ioStreams),
-				expose.NewCmdExposeService(f, ioStreams),
-				cmdWithShortOverwrite(scale.NewCmdScale(f, ioStreams), "Set a new size for a Deployment, ReplicaSet, CloneSet, or Advanced StatefulSet"),
-			},
-		},
+		//{
+		//	Message: "Basic Commands:",
+		//	Commands: []*cobra.Command{
+		//		create.NewCmdCreate(f, ioStreams),
+		//		expose.NewCmdExposeService(f, ioStreams),
+		//		cmdWithShortOverwrite(scale.NewCmdScale(f, ioStreams), "Set a new size for a Deployment, ReplicaSet, CloneSet, or Advanced StatefulSet"),
+		//	},
+		//},
 		{
 			Message: "Troubleshooting and Debugging Commands:",
 			Commands: []*cobra.Command{
@@ -382,14 +379,14 @@ func NewKubectlCommand(in io.Reader, out, err io.Writer) *cobra.Command {
 			},
 		},
 
-		{
-			Message: "CloneSet Commands:",
-			Commands: []*cobra.Command{
-				krollout.NewCmdRollout(f, ioStreams),
-				kset.NewCmdSet(f, ioStreams),
-				migrate.NewCmdMigrate(f, ioStreams),
-			},
-		},
+		//{
+		//	Message: "CloneSet Commands:",
+		//	Commands: []*cobra.Command{
+		//		krollout.NewCmdRollout(f, ioStreams),
+		//		kset.NewCmdSet(f, ioStreams),
+		//		migrate.NewCmdMigrate(f, ioStreams),
+		//	},
+		//},
 		{
 			Message: "AdvancedStatefulSet Commands:",
 			Commands: []*cobra.Command{

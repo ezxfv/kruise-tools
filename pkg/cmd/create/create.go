@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"k8s.io/kubectl/pkg/cmd/create"
 	"net/url"
 	"runtime"
 	"strings"
@@ -47,26 +48,7 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 )
 
-// CreateOptions is the commandline options for 'create' sub command
-type CreateOptions struct {
-	PrintFlags  *genericclioptions.PrintFlags
-	RecordFlags *genericclioptions.RecordFlags
-
-	DryRunStrategy cmdutil.DryRunStrategy
-	DryRunVerifier *resource.DryRunVerifier
-
-	fieldManager string
-
-	FilenameOptions  resource.FilenameOptions
-	Selector         string
-	EditBeforeCreate bool
-	Raw              string
-
-	Recorder genericclioptions.Recorder
-	PrintObj func(obj kruntime.Object) error
-
-	genericclioptions.IOStreams
-}
+type CreateOptions = create.CreateOptions
 
 var (
 	createLong = templates.LongDesc(i18n.T(`
@@ -114,8 +96,8 @@ func NewCmdCreate(f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cob
 				defaultRunFunc(cmd, args)
 				return
 			}
-			cmdutil.CheckErr(o.Complete(f, cmd))
-			cmdutil.CheckErr(o.ValidateArgs(cmd, args))
+			cmdutil.CheckErr(o.Complete(f, cmd, args))
+			cmdutil.CheckErr(o.Validate())
 			cmdutil.CheckErr(o.RunCreate(f, cmd))
 		},
 	}
@@ -194,8 +176,10 @@ func (o *CreateOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	o.DryRunVerifier = resource.NewDryRunVerifier(dynamicClient, f.OpenAPIGetter())
+	o.DryRunVerifier = resource.NewQueryParamVerifier(dynamicClient, f.OpenAPIGetter(), resource.QueryParamDryRun)
+	o.FieldValidationVerifier = resource.NewQueryParamVerifier(dynamicClient, f.OpenAPIGetter(), resource.QueryParamFieldValidation)
 
+	o.ValidationDirective, err = cmdutil.GetValidationDirective(cmd)
 	printer, err := o.PrintFlags.ToPrinter()
 	if err != nil {
 		return err
@@ -331,7 +315,7 @@ type CreateSubcommandOptions struct {
 	// StructuredGenerator is the resource generator for the object being created
 	StructuredGenerator generate.StructuredGenerator
 	DryRunStrategy      cmdutil.DryRunStrategy
-	DryRunVerifier      *resource.DryRunVerifier
+	DryRunVerifier      *resource.QueryParamVerifier
 	CreateAnnotation    bool
 	FieldManager        string
 
@@ -371,7 +355,7 @@ func (o *CreateSubcommandOptions) Complete(f cmdutil.Factory, cmd *cobra.Command
 	if err != nil {
 		return err
 	}
-	o.DryRunVerifier = resource.NewDryRunVerifier(dynamicClient, f.OpenAPIGetter())
+	o.DryRunVerifier = resource.NewQueryParamVerifier(dynamicClient, f.OpenAPIGetter(), resource.QueryParamDryRun)
 	o.CreateAnnotation = cmdutil.GetFlagBool(cmd, cmdutil.ApplyAnnotationsFlag)
 
 	cmdutil.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.DryRunStrategy)
