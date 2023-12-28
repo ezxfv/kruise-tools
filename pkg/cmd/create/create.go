@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"k8s.io/kubectl/pkg/cmd/create"
 	"net/url"
 	"runtime"
 	"strings"
@@ -48,7 +47,29 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 )
 
-type CreateOptions = create.CreateOptions
+// CreateOptions is the commandline options for 'create' sub command
+type CreateOptions struct {
+	PrintFlags  *genericclioptions.PrintFlags
+	RecordFlags *genericclioptions.RecordFlags
+
+	DryRunStrategy          cmdutil.DryRunStrategy
+	DryRunVerifier          *resource.QueryParamVerifier
+	FieldValidationVerifier *resource.QueryParamVerifier
+
+	ValidationDirective string
+
+	fieldManager string
+
+	FilenameOptions  resource.FilenameOptions
+	Selector         string
+	EditBeforeCreate bool
+	Raw              string
+
+	Recorder genericclioptions.Recorder
+	PrintObj func(obj kruntime.Object) error
+
+	genericclioptions.IOStreams
+}
 
 var (
 	createLong = templates.LongDesc(i18n.T(`
@@ -126,32 +147,29 @@ func NewCmdCreate(f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cob
 	return cmd
 }
 
-// ValidateArgs makes sure there is no discrepency in command options
-func (o *CreateOptions) ValidateArgs(cmd *cobra.Command, args []string) error {
-	if len(args) != 0 {
-		return cmdutil.UsageErrorf(cmd, "Unexpected args: %v", args)
-	}
+// Validate makes sure there is no discrepency in command options
+func (o *CreateOptions) Validate() error {
 	if len(o.Raw) > 0 {
 		if o.EditBeforeCreate {
-			return cmdutil.UsageErrorf(cmd, "--raw and --edit are mutually exclusive")
+			return fmt.Errorf("--raw and --edit are mutually exclusive")
 		}
 		if len(o.FilenameOptions.Filenames) != 1 {
-			return cmdutil.UsageErrorf(cmd, "--raw can only use a single local file or stdin")
+			return fmt.Errorf("--raw can only use a single local file or stdin")
 		}
 		if strings.Index(o.FilenameOptions.Filenames[0], "http://") == 0 || strings.Index(o.FilenameOptions.Filenames[0], "https://") == 0 {
-			return cmdutil.UsageErrorf(cmd, "--raw cannot read from a url")
+			return fmt.Errorf("--raw cannot read from a url")
 		}
 		if o.FilenameOptions.Recursive {
-			return cmdutil.UsageErrorf(cmd, "--raw and --recursive are mutually exclusive")
+			return fmt.Errorf("--raw and --recursive are mutually exclusive")
 		}
 		if len(o.Selector) > 0 {
-			return cmdutil.UsageErrorf(cmd, "--raw and --selector (-l) are mutually exclusive")
+			return fmt.Errorf("--raw and --selector (-l) are mutually exclusive")
 		}
-		if len(cmdutil.GetFlagString(cmd, "output")) > 0 {
-			return cmdutil.UsageErrorf(cmd, "--raw and --output are mutually exclusive")
+		if o.PrintFlags.OutputFormat != nil && len(*o.PrintFlags.OutputFormat) > 0 {
+			return fmt.Errorf("--raw and --output are mutually exclusive")
 		}
 		if _, err := url.ParseRequestURI(o.Raw); err != nil {
-			return cmdutil.UsageErrorf(cmd, "--raw must be a valid URL path: %v", err)
+			return fmt.Errorf("--raw must be a valid URL path: %v", err)
 		}
 	}
 
@@ -159,7 +177,10 @@ func (o *CreateOptions) ValidateArgs(cmd *cobra.Command, args []string) error {
 }
 
 // Complete completes all the required options
-func (o *CreateOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
+func (o *CreateOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args []string) error {
+	if len(args) != 0 {
+		return cmdutil.UsageErrorf(cmd, "Unexpected args: %v", args)
+	}
 	var err error
 	o.RecordFlags.Complete(cmd)
 	o.Recorder, err = o.RecordFlags.ToRecorder()
@@ -180,6 +201,10 @@ func (o *CreateOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
 	o.FieldValidationVerifier = resource.NewQueryParamVerifier(dynamicClient, f.OpenAPIGetter(), resource.QueryParamFieldValidation)
 
 	o.ValidationDirective, err = cmdutil.GetValidationDirective(cmd)
+	if err != nil {
+		return err
+	}
+
 	printer, err := o.PrintFlags.ToPrinter()
 	if err != nil {
 		return err
@@ -207,7 +232,8 @@ func (o *CreateOptions) RunCreate(f cmdutil.Factory, cmd *cobra.Command) error {
 	if o.EditBeforeCreate {
 		return RunEditOnCreate(f, o.PrintFlags, o.RecordFlags, o.IOStreams, cmd, &o.FilenameOptions, o.fieldManager)
 	}
-	schema, err := f.Validator(cmdutil.GetFlagBool(cmd, "validate"))
+
+	schema, err := f.Validator(o.ValidationDirective, o.FieldValidationVerifier)
 	if err != nil {
 		return err
 	}
@@ -254,6 +280,7 @@ func (o *CreateOptions) RunCreate(f cmdutil.Factory, cmd *cobra.Command) error {
 				NewHelper(info.Client, info.Mapping).
 				DryRun(o.DryRunStrategy == cmdutil.DryRunServer).
 				WithFieldManager(o.fieldManager).
+				WithFieldValidation(o.ValidationDirective).
 				Create(info.Namespace, true, info.Object)
 			if err != nil {
 				return cmdutil.AddSourceToErr("creating", info.Source, err)
@@ -278,15 +305,19 @@ func (o *CreateOptions) RunCreate(f cmdutil.Factory, cmd *cobra.Command) error {
 func RunEditOnCreate(f cmdutil.Factory, printFlags *genericclioptions.PrintFlags, recordFlags *genericclioptions.RecordFlags, ioStreams genericclioptions.IOStreams, cmd *cobra.Command, options *resource.FilenameOptions, fieldManager string) error {
 	editOptions := editor.NewEditOptions(editor.EditBeforeCreateMode, ioStreams)
 	editOptions.FilenameOptions = *options
+	validationDirective, err := cmdutil.GetValidationDirective(cmd)
+	if err != nil {
+		return err
+	}
 	editOptions.ValidateOptions = cmdutil.ValidateOptions{
-		EnableValidation: cmdutil.GetFlagBool(cmd, "validate"),
+		ValidationDirective: string(validationDirective),
 	}
 	editOptions.PrintFlags = printFlags
 	editOptions.ApplyAnnotation = cmdutil.GetFlagBool(cmd, cmdutil.ApplyAnnotationsFlag)
 	editOptions.RecordFlags = recordFlags
 	editOptions.FieldManager = "kubectl-create"
 
-	err := editOptions.Complete(f, []string{}, cmd)
+	err = editOptions.Complete(f, []string{}, cmd)
 	if err != nil {
 		return err
 	}
